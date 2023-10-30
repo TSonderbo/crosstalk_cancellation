@@ -1,10 +1,11 @@
 import numpy as np
 import scipy.signal as signal
 import scipy.linalg as linalg
+import math
 
 class Cancellation_filter:
 
-    def __init__(self, h, filterlength):
+    def __init__(self, h, h_full, filterlength):
         """Instantiate a cross talk cancellatio filter.
 
         Parameters
@@ -17,6 +18,9 @@ class Cancellation_filter:
         #if(len(h) <= filterlength):
         #    raise Exception("")
         self.filterLength = filterlength
+
+        self.h_full = np.array([[h_full[:,0], h_full[:,1]],
+                       [h_full[:,2], h_full[:,3]]])
 
         self.A = self.__build_filter(h, filterlength)
 
@@ -56,24 +60,24 @@ class Cancellation_filter:
 
         for i in range(0, self.nrMics): #Row
             for j in range(0, self.nrSpk): #Col
-                cmtx = np.matrix(linalg.convolution_matrix(d[i,j,:], filterlength))
+                cmtx = np.matrix(linalg.convolution_matrix(d[j,i,:], filterlength))
                 cmtx_d = np.array(cmtx*delay.T).flatten()
-                cz[i,j,:] = cmtx_d
+                cz[j,i,:] = cmtx_d
         
         cm = np.zeros((self.nrSpk*lsm, filterlength*self.nrMics))
 
         for i in range(0, self.nrMics): #Row
             for j in range(0, self.nrSpk): #Col
-                cm[j*lsm:(j+1)*lsm, i*filterlength:(i+1)*filterlength] = linalg.convolution_matrix(self.h[i,j,:], filterlength)
+                cm[j*lsm:(j+1)*lsm, i*filterlength:(i+1)*filterlength] = linalg.convolution_matrix(self.h[j,i,:], filterlength)
 
-        H = np.empty((self.nrMics,self.nrSpk,filterlength))
+        A = np.empty((self.nrMics,self.nrSpk,filterlength))
 
         for i in range(0, self.nrSpk):
             hh = np.array(np.matrix(linalg.pinv(cm, None)) * np.matrix((cz[:,i,:].flatten())).T)
             hh = np.reshape(hh, (self.nrMics,filterlength))
-            H[:,i,:] = hh
+            A[:,i,:] = hh
             
-        return H
+        return A
 
     def filter_stereo(self, sig):
         """Filters the input with the cancellation filters of the filter object.
@@ -134,6 +138,20 @@ class Cancellation_filter:
     #     out = (out/max)*0.5
 
     #     return out
+
+    def filter_reference_single_channel(self, sig):
+        
+        excite_hll = signal.convolve(sig, self.A[0,0,:])
+        excite_hrl = signal.convolve(sig, self.A[0,0,:])
+        excite_hlr = signal.convolve(sig, self.A[0,1,:])
+        excite_hrr = signal.convolve(sig, self.A[0,1,:])
+
+        l = signal.convolve(self.h_full[0,0,:], excite_hll) + signal.convolve(self.h_full[0,1,:], excite_hlr)
+        r = signal.convolve(self.h_full[1,1,:], excite_hrr) + signal.convolve(self.h_full[1,0,:], excite_hrl)
+
+        out = np.column_stack((l, r))
+
+        return out
         
     def filter_reference(self, sig):
         """Filters the input signal with the cancellations filters of the object as well as the corresponding HRIRs. 
@@ -159,50 +177,66 @@ class Cancellation_filter:
             for j in range(0, self.nrSpk):
                 out_a[:,i] += signal.fftconvolve(sig[:,j], self.A[i,j,:])
 
-        outLength_h = np.size(out_a, 0) + self.nrSamp - 1
+        outLength_h = np.size(out_a, 0) + len(self.h_full[0,0,:]) - 1
 
         out_h = np.zeros((outLength_h, 2))
         for i in range(0, self.nrMics):
             for j in range(0, self.nrSpk):
-                out_h[:,i] += signal.fftconvolve(out_a[:,j], self.h[i,j,:])
+                out_h[:,i] += signal.fftconvolve(out_a[:,j], self.h_full[i,j,:])
 
         return out_h
 
-def CHSP(sig, sig_rec):
-    """Calculate the Channel Separation index.
+    def CHSP(self, sig, sig_rec, nj, nf):
+        """Calculate the Channel Separation index.
 
-    Parameters
-    ----------
-    sig : array_like
-        The dry signal.
-    sig_rec : array_like
-        The recorded filtered signal.
+        Parameters
+        ----------
+        sig : array_like
+            The dry signal.
+        sig_rec : array_like
+            The recorded filtered signal.
 
-    Returns
-    -------
-    out : int
-        Channel Separation Index in dB.
-    """
+        Returns
+        -------
+        out : int
+            Channel Separation Index in dB.
+        """
 
+        rlength = len(self.A[0,0,:]) + len(self.h[0,0,:]) - 1
 
+        R = np.zeros((2,2,rlength))
 
-    return None
-def PE(sig, sig_rec):
-    """Calculate the Performance Error Index.
+        for i in range(0,2):
+            for j in range(0,2):
+                for k in range(0,2):
+                    R[i,j,:] = signal.fftconvolve(self.h[i,k,:], self.A[k,j,:])
 
-    Parameters
-    ----------
-    sig : array_like
-        The dry signal.
-    sig_rec : array_like
-        The recorded filtered signal.
+        chsp = np.zeros((self.filterlength, 2))
+        
+        for i in range(0,2):
+            for nc in range(0, self.filterlength):
+                sum = 0
+                for k in range(nj, nf + 1):
+                    sum += 20*math.log10(abs())
+                chsp[nc:i] = 1/(nf - nj + 1)
 
-    Returns
-    -------
-    out : int
-        Performance Error Index in dB.
-    """
+        return None
+    def PE(self, sig, sig_rec):
+        """Calculate the Performance Error Index.
 
-    
+        Parameters
+        ----------
+        sig : array_like
+            The dry signal.
+        sig_rec : array_like
+            The recorded filtered signal.
 
-    return None
+        Returns
+        -------
+        out : int
+            Performance Error Index in dB.
+        """
+
+        
+
+        return None

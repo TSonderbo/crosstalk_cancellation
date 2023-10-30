@@ -2,15 +2,17 @@ import sounddevice as sd
 import numpy as np
 import maximumlengthsequence as mlseq
 import time
+import plotutil
+
 
 def measure_impulse_response(fs):
 
-    mls, sig = mlseq.generate_mls_signal(fs)
+    mls, sig = mlseq.generate_mls_signal(fs, T = 10, nbits=15)
 
     # Left channel impulse responses
     left_sig = np.column_stack((sig, np.zeros(len(sig))))
 
-    left_recordings = sd.playrec(left_sig, fs, channels=2, dtype='float32')
+    left_recordings = sd.playrec(left_sig, fs, channels=2, dtype='float64')
     sd.wait()
 
     time.sleep(2)
@@ -21,8 +23,7 @@ def measure_impulse_response(fs):
     # Right channel impulse responses
     right_sig = np.column_stack((np.zeros(len(sig)), sig))
 
-    right_recordings = sd.playrec(right_sig, fs, channels=2, dtype=
-                              'float32')
+    right_recordings = sd.playrec(right_sig, fs, channels=2, dtype='float64')
     sd.wait()
 
     hLR, hLR_quality = mlseq.decode_mls_signal(right_recordings[:,0], mls)
@@ -41,5 +42,7 @@ def measure_impulse_response(fs):
     # ax3.plot(right_recordings[:,1])
     # ax3.set_title("hRR")
     # plt.show()
+
+    #plotutil.plot_impulse_response(np.column_stack((left_recordings, right_recordings)))
 
     return out
