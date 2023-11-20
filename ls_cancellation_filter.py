@@ -8,7 +8,7 @@ from numpy.linalg import inv
 
 class LS_cancellation_filter_FD:
 
-    def __init__(self, h, h_full, Nc, beta):
+    def __init__(self, h, h_full, Nc, beta, b=np.empty(0)):
 
         self.Nc = Nc
 
@@ -32,18 +32,30 @@ class LS_cancellation_filter_FD:
         d = np.array([[fft.fft(delta, Nc), fft.fft(np.zeros(dlength), Nc)],
                        [fft.fft(np.zeros(dlength), Nc), fft.fft(delta, Nc)]])
 
+        m = Nc//2 #Delay
+
+        if(b.any()):
+            _, Bfreqz = signal.freqz(b, worN=Nc ,fs=48000)
+        
         # Complex Conjugate Transpose
+        I = np.identity(2) # 2x2 Identity Matrix
         H_T = np.empty((2,2,Nc), dtype='complex_')
+        B = np.empty((2,2,Nc), dtype='complex_')
+        B_T = np.empty((2,2,Nc), dtype='complex_')
+        B_coeff = np.empty((2,2,Nc), dtype='complex_')
         for k in range(0, Nc):
+            if(b.any()):
+                B[:,:,k] = Bfreqz[k] * I
+                B_T[:,:,k] = B[:,:,k].conj().T
+                B_coeff[:,:,k] = np.matrix(B_T[:,:,k], dtype='complex_') * np.matrix(B[:,:,k], dtype='complex_')
+            else:
+                B_coeff[:,:,k] = I
             H_T[:,:,k] = H[:,:,k].conj().T
 
-        I = np.identity(2) # 2x2 Identity Matrix
-
-        m = Nc//2 #Delay
-        
         A = np.empty((2,2,Nc), dtype='complex_')
         for k in range(1, Nc):
-            A[:,:,k] = np.linalg.inv(np.matrix(H_T[:,:,k], dtype='complex_') * np.matrix(H[:,:,k], dtype='complex_') * beta * I) \
+            A[:,:,k] = np.linalg.inv(np.matrix(H_T[:,:,k], dtype='complex_') * np.matrix(H[:,:,k], dtype='complex_') \
+            + beta * B_coeff[:,:,k]) \
             * np.matrix(H_T[:,:,k], dtype='complex_') * np.matrix(d[:,:,k], dtype='complex_')
 
         h0 = np.array([[fft.ifft(A[0,0,:], Nc), fft.ifft(A[0,1,:], Nc)],
@@ -55,7 +67,7 @@ class LS_cancellation_filter_FD:
 
 class LS_Cancellation_filter_TD:
 
-    def __init__(self, h, h_full, Nc, beta, b):
+    def __init__(self, h, h_full, Nc, beta, b = np.empty(0)):
 
         #Impulse response array shaped by
         #microphones on row and speakers on columns
@@ -72,7 +84,6 @@ class LS_Cancellation_filter_TD:
         #Target filter array - i.e delta functions on the diagonals
         d = np.array([[delta, np.zeros(Nh)],
                        [np.zeros(Nh), delta]])
-
 
         Nhc = Nh + Nc - 1
 
@@ -100,21 +111,17 @@ class LS_Cancellation_filter_TD:
 
         A = np.empty((2,2,Nc))
 
-        B_t = np.zeros((2*Nc, 2*Nc))
-
-        for i in range(0, 2): #Row
-            for j in range(0, 2): #Col
-                if(i == j):
-                    B_t[j*Nc:(j+1)*Nc, i*Nc:(i+1)*Nc] = linalg.convolution_matrix(b, Nc, 'same')
-                else:
-                    B_t[j*Nc:(j+1)*Nc, i*Nc:(i+1)*Nc] = np.zeros((Nc, Nc))
+        if(b.any()):
+            I = np.identity(2)
+            B_t = linalg.convolution_matrix(b, Nc)
+            B_coeff = np.matrix(np.kron(I, np.matrix(B_t.T) * np.matrix(B_t)))
+        else:
+            B_coeff = np.identity(2*Nc)
 
         H_t = np.matrix(H_t)
-        B_t = np.matrix(B_t)
-
 
         for i in range(0,2):
-            hh = np.linalg.inv(H_t.T * H_t + beta * B_t.T * B_t) * H_t.T * np.matrix((dm[:,i,:].flatten())).T
+            hh = np.linalg.inv(H_t.T * H_t + beta * B_coeff) * H_t.T * np.matrix((dm[:,i,:].flatten())).T
             A[:,i,:] = np.reshape(hh, (2,Nc))
         
 
